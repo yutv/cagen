@@ -1,0 +1,99 @@
+#!/bin/bash
+
+VERSION='0.1.0'
+
+printUsage()
+{
+    local SCRIPT_NAME=$(basename $0)
+    echo "${SCRIPT_NAME} ${VERSION}"
+    echo "Usage: ${SCRIPT_NAME} [OPTIONS] domain"
+    echo "Options:"
+    echo "    -h      | --help           display this message and exit"
+    echo "    -f      | --force          force owerwrite existing files"
+    echo
+    echo "Example:"
+    echo "    ${SCRIPT_NAME} dev.local"
+}
+
+uncomment()
+{
+	sed -e 's/#.*$//' -re 's/^[\t ]+//' -e '/^$/d' -e 's/\[/\n&/g' 
+}
+
+dirname()
+{
+	sed 's/\(.*\)\/.*/\1/'
+}
+
+domain()
+{
+	sed "s~{DOMAIN}~$domain~g"
+}
+
+if [ $# -eq 0 ]
+then
+    printUsage
+    exit 0;
+fi
+force=""
+verbose=""
+POSITIONAL=()
+while [[ $# -gt 0 ]]
+do
+    key="$1"
+    case $key in
+        -f|--force)
+            force="1"
+            shift
+            ;;
+        -v|--verbose)
+            verbose="1"
+            shift
+            ;;
+        -h|--help)
+            printUsage
+            exit 0
+            ;;
+        *)
+            POSITIONAL+=("$1")
+            shift
+            ;;
+    esac
+done
+set -- "${POSITIONAL[@]}"
+
+scriptDir=$(readlink -f $0 | dirname)
+cd "$scriptDir" || exit 1
+mkdir -p "$scriptDir/certs"
+cd "$scriptDir/certs" || exit 1
+
+domain="$1"
+
+if [ ! -z "$force" ]; then
+	rm -f $domain*.*
+fi
+
+if [ -f "$domain-ca.key.pem" ]; then
+	echo "Error: $domain-ca.key.pem already exists"
+	exit 1
+fi
+
+#cat /etc/pki/tls/openssl.cnf | uncomment > $domain.cnf
+
+cat "$scriptDir/cagen.cnf.dist" | domain > $domain.cnf
+openssl genrsa -aes256 -out $domain-ca.key.pem 2048
+chmod 600 $domain-ca.key.pem
+openssl req -new -x509 -subj "/CN=myca" -extensions v3_ca -days 3650 -key $domain-ca.key.pem -sha256 -out $domain-ca.pem -config $domain.cnf
+openssl genrsa -out $domain.key.pem 2048
+openssl req -subj "/CN=$domain" -extensions v3_req -sha256 -new -key $domain.key.pem -out $domain.csr
+openssl x509 -req -extensions v3_req -days 3650 -sha256 -in $domain.csr -CA $domain-ca.pem -CAkey $domain-ca.key.pem -CAcreateserial -out $domain.crt -extfile $domain.cnf
+if [ ! -z "$verbose" ]; then
+	openssl x509 -in $domain.crt -text -noout
+fi
+echo
+echo "Done"
+echo "Browser Authority Certificate: `pwd`/$domain-ca.pem"
+echo "Apache config:"
+echo "    SSLEngine on"
+echo "    SSLCertificateFile `pwd`/$domain.crt"
+echo "    SSLCertificateKeyFile `pwd`/$domain.key.pem"
