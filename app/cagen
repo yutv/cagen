@@ -1,6 +1,6 @@
 #!/bin/bash
 
-VERSION='0.1.0'
+VERSION='1.0.0'
 
 printUsage()
 {
@@ -13,6 +13,7 @@ printUsage()
     echo
     echo "Example:"
     echo "    ${SCRIPT_NAME} dev.local"
+    echo
 }
 
 uncomment()
@@ -73,27 +74,49 @@ if [ ! -z "$force" ]; then
 	rm -f $domain*.*
 fi
 
-if [ -f "$domain-ca.key.pem" ]; then
-	echo "Error: $domain-ca.key.pem already exists"
+if [ -f "$domain-ca.key" ]; then
+	echo "Error: $domain-ca.key already exists"
 	exit 1
 fi
 
 #cat /etc/pki/tls/openssl.cnf | uncomment > $domain.cnf
 
 cat "$scriptDir/cagen.cnf.dist" | domain > $domain.cnf
-openssl genrsa -aes256 -out $domain-ca.key.pem 2048
-chmod 600 $domain-ca.key.pem
-openssl req -new -x509 -subj "/CN=myca" -extensions v3_ca -days 3650 -key $domain-ca.key.pem -sha256 -out $domain-ca.pem -config $domain.cnf
-openssl genrsa -out $domain.key.pem 2048
-openssl req -subj "/CN=$domain" -extensions v3_req -sha256 -new -key $domain.key.pem -out $domain.csr
-openssl x509 -req -extensions v3_req -days 3650 -sha256 -in $domain.csr -CA $domain-ca.pem -CAkey $domain-ca.key.pem -CAcreateserial -out $domain.crt -extfile $domain.cnf
+passphrase="1234"
+openssl genrsa -aes256 -passout pass:$passphrase -out $domain-ca.key 2048 > /dev/null 2>&1
+chmod 600 $domain-ca.key
+openssl req -passin pass:$passphrase -new -x509 -subj "/CN=$domain" -extensions v3_ca -days 3650 -key $domain-ca.key -sha256 -out $domain-ca.crt -config $domain.cnf  > /dev/null 2>&1
+openssl genrsa -passout pass:$passphrase -out $domain.key 2048  > /dev/null 2>&1
+openssl req -subj "/CN=$domain" -extensions v3_req -sha256 -new -key $domain.key -out $domain.csr  > /dev/null 2>&1
+openssl x509 -req -passin pass:$passphrase -extensions v3_req -days 3650 -sha256 -in $domain.csr -CA $domain-ca.crt -CAkey $domain-ca.key -CAcreateserial -out $domain.crt -extfile $domain.cnf  > /dev/null 2>&1
+
 if [ ! -z "$verbose" ]; then
 	openssl x509 -in $domain.crt -text -noout
 fi
 echo
-echo "Done"
-echo "Browser Authority Certificate: `pwd`/$domain-ca.pem"
-echo "Apache config:"
+echo "Generated Files:"
+echo "  certs/$domain.key    - SSL Certificate Private Key"
+echo "  certs/$domain.crt    - SSL Certificate Public Key"
+echo "  certs/$domain-ca.crt - Authority Certificate (import it in your browser as Authority Certificate)"
+# echo "certs/$domain.cnf    "
+# echo "certs/$domain.csr    "
+# echo "certs/$domain-ca.srl "
+# echo "certs/$domain-ca.key "
+echo
+echo "Apache Config Example:"
 echo "    SSLEngine on"
-echo "    SSLCertificateFile `pwd`/$domain.crt"
-echo "    SSLCertificateKeyFile `pwd`/$domain.key.pem"
+echo "    SSLCertificateFile /etc/ssl/certs/$domain.crt"
+echo "    SSLCertificateKeyFile /etc/ssl/private/$domain.key"
+echo
+echo "Nginx Config Example:"
+echo "    server {"
+echo "        server_name $domain;"
+echo "        listen 80;"
+echo "        listen 443 ssl;"
+echo "        ssl_certificate /etc/ssl/certs/$domain.crt;"
+echo "        ssl_certificate_key /etc/ssl/private/$domain.key;"
+echo
+echo "Ubuntu (curl, etc.)"
+echo "    sudo cp certs/$domain-ca.crt /usr/local/share/ca-certificates/"
+echo "    sudo update-ca-certificates"
+echo
