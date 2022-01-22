@@ -1,15 +1,15 @@
 #!/bin/bash
 
-VERSION='1.0.0'
+VERSION='1.1.0'
 
 printUsage()
 {
     local SCRIPT_NAME=$(basename $0)
     echo "${SCRIPT_NAME} ${VERSION}"
-    echo "Usage: ${SCRIPT_NAME} [OPTIONS] domain"
+    echo "Usage: ${SCRIPT_NAME} [OPTIONS] domain [domain2] [domain3] [domainN]"
     echo "Options:"
     echo "    -h      | --help           display this message and exit"
-    echo "    -f      | --force          force owerwrite existing files"
+    echo "    -f      | --force          force overwrite existing files"
     echo
     echo "Example:"
     echo "    ${SCRIPT_NAME} dev.local"
@@ -89,19 +89,17 @@ openssl req -passin pass:$passphrase -new -x509 -subj "/CN=$domain" -extensions 
 openssl genrsa -passout pass:$passphrase -out $domain.key 2048  > /dev/null 2>&1
 openssl req -subj "/CN=$domain" -extensions v3_req -sha256 -new -key $domain.key -out $domain.csr  > /dev/null 2>&1
 openssl x509 -req -passin pass:$passphrase -extensions v3_req -days 3650 -sha256 -in $domain.csr -CA $domain-ca.crt -CAkey $domain-ca.key -CAcreateserial -out $domain.crt -extfile $domain.cnf  > /dev/null 2>&1
+cat $domain.crt $domain.key > $domain.pem
 
 if [ ! -z "$verbose" ]; then
 	openssl x509 -in $domain.crt -text -noout
 fi
+
 echo
 echo "Generated Files:"
 echo "  certs/$domain.key    - SSL Certificate Private Key"
 echo "  certs/$domain.crt    - SSL Certificate Public Key"
 echo "  certs/$domain-ca.crt - Authority Certificate (import it in your browser as Authority Certificate)"
-# echo "certs/$domain.cnf    "
-# echo "certs/$domain.csr    "
-# echo "certs/$domain-ca.srl "
-# echo "certs/$domain-ca.key "
 echo
 echo "Apache Config Example:"
 echo "    SSLEngine on"
